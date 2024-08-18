@@ -8,7 +8,7 @@
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.6.2",
-    "bland-client-js-sdk": "^0.0.9",
+    "bland-client-js-sdk": "^0.1.1",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "node-fetch": "^3.3.2",
@@ -46,6 +46,6 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.4.5"
   }
 }

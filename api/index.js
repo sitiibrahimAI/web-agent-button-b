@@ -2,7 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const https = require('https');
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../server/.env') });
+
+// Load environment variables
+const envPath = path.join(__dirname, '..', 'server', '.env');
+console.log('Loading .env file from:', envPath);
+require('dotenv').config({ path: envPath });
 
 const app = express();
 
@@ -17,8 +21,9 @@ app.get('/api/token', (req, res) => {
   console.log('BLAND_AUTH_KEY:', process.env.BLAND_AUTH_KEY ? 'Set' : 'Not set');
 
   if (!process.env.BLAND_AGENT_ID || !process.env.BLAND_AUTH_KEY) {
+    console.error('Missing environment variables: BLAND_AGENT_ID or BLAND_AUTH_KEY');
     return res.status(500).json({ 
-      error: 'Failed to fetch token', 
+      error: 'Server configuration error', 
       details: 'Missing required environment variables'
     });
   }
@@ -41,9 +46,16 @@ app.get('/api/token', (req, res) => {
     });
 
     response.on('end', () => {
+      console.log('Response status code:', response.statusCode);
+      console.log('Response data:', data);
+      
       if (response.statusCode === 200) {
         console.log('Token received successfully');
-        res.json(JSON.parse(data));
+        const responseData = JSON.parse(data);
+        res.json({
+          ...responseData,
+          agentId: process.env.BLAND_AGENT_ID
+        });
       } else {
         console.error('Error fetching token:', data);
         res.status(response.statusCode).json({ 
@@ -66,6 +78,12 @@ app.get('/api/token', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3003;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+
+// Only start the server if this file is run directly
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app; // Export the app for testing

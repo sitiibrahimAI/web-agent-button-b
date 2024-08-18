@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { BlandWebClient } from "bland-client-js-sdk";
 import './App.css';
 
@@ -8,47 +8,26 @@ function App() {
   const [message, setMessage] = useState('');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [sessionToken, setSessionToken] = useState(null);
   const [error, setError] = useState(null);
   const audioContextRef = useRef(null);
   const streamRef = useRef(null);
 
-  useEffect(() => {
-    if (sessionToken && !sdk) {
-      console.log('Initializing SDK with new token');
-      try {
-        console.log('BLAND_AGENT_ID:', process.env.REACT_APP_BLAND_AGENT_ID);
-        console.log('Session Token:', sessionToken.substring(0, 10) + '...');  // Log part of the token for debugging
-        const initSDK = new BlandWebClient(
-          process.env.REACT_APP_BLAND_AGENT_ID,
-          sessionToken
-        );
-        console.log('BlandWebClient instance created');
-        setSdk(initSDK);
-        console.log('SDK initialized with new token');
-      } catch (error) {
-        console.error('Error initializing SDK:', error);
-        setError('Failed to initialize SDK. Please try again.');
-      }
-    }
-  }, [sessionToken, sdk]);
-
   const fetchNewToken = async () => {
     try {
+      console.log('Fetching token from server...');
       const response = await fetch('http://localhost:3003/api/token');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      if (!data.token) {
-        throw new Error('Token not received from server');
+      console.log('Response received:', data);
+      if (!data.token || !data.agentId) {
+        throw new Error('Token or Agent ID not received from server');
       }
-      console.log('Token received from server');
-      setSessionToken(data.token);
-      return data.token;
+      console.log('Token and Agent ID received from server');
+      return { token: data.token, agentId: data.agentId };
     } catch (error) {
       console.error('Error fetching token:', error);
-      setError(`Failed to fetch token: ${error.message}`);
       throw error;
     }
   };
@@ -64,7 +43,7 @@ function App() {
       console.log('AudioContext created and resumed');
     } catch (error) {
       console.error('Error initializing audio:', error);
-      setError('Failed to access microphone. Please check your permissions and try again.');
+      throw error;
     }
   };
 
@@ -76,25 +55,17 @@ function App() {
       setIsProcessing(true);
       console.log('Status set to connecting');
       try {
-        await fetchNewToken();
+        const { token, agentId } = await fetchNewToken();
         await initializeAudio();
         
-        console.log('Waiting for SDK to be initialized...');
-        let attempts = 0;
-        while (!sdk && attempts < 100) {  // Wait for up to 10 seconds
-          await new Promise(resolve => setTimeout(resolve, 100));
-          attempts++;
-          if (attempts % 10 === 0) {  // Log every second
-            console.log(`Still waiting for SDK... (${attempts / 10}s)`);
-          }
-        }
+        console.log('Initializing SDK with new token');
+        console.log('BLAND_AGENT_ID:', agentId);
+        console.log('Session Token:', token.substring(0, 10) + '...');
         
-        if (!sdk) {
-          throw new Error('SDK initialization timeout');
-        }
+        const newSdk = new BlandWebClient(agentId, token);
+        console.log('BlandWebClient instance created');
         
-        console.log('SDK ready, initializing conversation with Bland SDK');
-        await sdk.initConversation({ 
+        await newSdk.initConversation({ 
           sampleRate: 44100,
           onSpeechStart: () => {
             console.log('Speech detected - user is speaking', new Date().toISOString());
@@ -117,13 +88,22 @@ function App() {
             }
           },
         });
+        
+        setSdk(newSdk);
         setStatus('active');
         console.log('Conversation initialized, status set to active');
       } catch (error) {
         console.error('Failed to start conversation:', error);
+        console.error('Error stack:', error.stack);
         setStatus('idle');
         setIsProcessing(false);
-        setError(`Failed to start conversation: ${error.message}`);
+        if (error.message.includes('Token or Agent ID not received')) {
+          setError('Failed to get necessary credentials from server. Please check server logs and configuration.');
+        } else if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+          setError('Network error. Please check your internet connection and try again.');
+        } else {
+          setError(`Failed to start conversation: ${error.message}`);
+        }
       }
     } else if (status === 'active') {
       try {
@@ -133,6 +113,7 @@ function App() {
         setMessage('');
         setIsSpeaking(false);
         setIsProcessing(false);
+        setSdk(null);
         console.log('Conversation stopped, status set to idle');
         if (streamRef.current) {
           streamRef.current.getTracks().forEach(track => track.stop());
