@@ -2,18 +2,19 @@ const express = require('express');
 const cors = require('cors');
 const https = require('https');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', 'server', '.env') });
 
-// Load environment variables
-const envPath = path.join(__dirname, '..', 'server', '.env');
-console.log('Loading .env file from:', envPath);
-require('dotenv').config({ path: envPath });
-
-const app = require('./app');
+const app = express();
 
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: [process.env.CORS_ORIGIN, 'http://localhost:3000', 'https://ai-assistant-button.netlify.app'],
   credentials: true
 }));
+
+// Root route
+app.get('/', (req, res) => {
+  res.send('API is running');
+});
 
 app.get('/api/token', (req, res) => {
   console.log('Fetching token from Bland AI...');
@@ -77,13 +78,15 @@ app.get('/api/token', (req, res) => {
   request.end();
 });
 
-const PORT = process.env.PORT || 3003;
+// 404 handler
+app.use((req, res, next) => {
+  res.status(404).send("Sorry, that route doesn't exist.");
+});
 
-// Only start the server if this file is run directly
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).send('Something broke!');
+});
 
-module.exports = app; // Export the app for testing
+module.exports = app;

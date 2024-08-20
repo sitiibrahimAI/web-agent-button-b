@@ -1,6 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { BlandWebClient } from "bland-client-js-sdk";
 import './App.css';
+
+const API_URL = 'http://api-env.eba-kgdp674b.us-west-2.elasticbeanstalk.com';
 
 function App() {
   const [status, setStatus] = useState('idle');
@@ -8,14 +10,15 @@ function App() {
   const [message, setMessage] = useState('');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const audioContextRef = useRef(null);
   const streamRef = useRef(null);
 
-  const fetchNewToken = async () => {
+  const fetchNewToken = useCallback(async () => {
     try {
       console.log('Fetching token from server...');
-      const response = await fetch('http://localhost:3003/api/token');
+      const response = await fetch(`${API_URL}/api/token`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -30,7 +33,19 @@ function App() {
       console.error('Error fetching token:', error);
       throw error;
     }
-  };
+  }, []);
+
+  const fetchNewTokenWithRetry = useCallback(async (retries = 3) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await fetchNewToken();
+      } catch (error) {
+        if (i === retries - 1) throw error;
+        console.log(`Retry attempt ${i + 1}`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+      }
+    }
+  }, [fetchNewToken]);
 
   const initializeAudio = async () => {
     console.log('Initializing audio');
@@ -53,9 +68,10 @@ function App() {
     if (status === 'idle') {
       setStatus('connecting');
       setIsProcessing(true);
+      setIsLoading(true);
       console.log('Status set to connecting');
       try {
-        const { token, agentId } = await fetchNewToken();
+        const { token, agentId } = await fetchNewTokenWithRetry();
         await initializeAudio();
         
         console.log('Initializing SDK with new token');
@@ -98,12 +114,16 @@ function App() {
         setStatus('idle');
         setIsProcessing(false);
         if (error.message.includes('Token or Agent ID not received')) {
-          setError('Failed to get necessary credentials from server. Please check server logs and configuration.');
+          setError('Unable to connect to the AI assistant. Please try again later.');
         } else if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-          setError('Network error. Please check your internet connection and try again.');
+          setError('Unable to reach the server. Please check your internet connection and try again.');
+        } else if (error.name === 'TypeError' && error.message.includes('Cross-Origin Request Blocked')) {
+          setError('CORS error. Please check the API server configuration.');
         } else {
-          setError(`Failed to start conversation: ${error.message}`);
+          setError('An error occurred while connecting to the AI assistant. Please try again.');
         }
+      } finally {
+        setIsLoading(false);
       }
     } else if (status === 'active') {
       try {
@@ -150,7 +170,7 @@ function App() {
     <div className="App">
       <button 
         onClick={handleClick} 
-        disabled={status === 'connecting'}
+        disabled={status === 'connecting' || isLoading}
         className={status === 'active' ? 'active' : ''}
       >
         {status === 'idle' ? 'Talk with Assistant' : 
@@ -162,6 +182,7 @@ function App() {
         </div>
       )}
       {isProcessing && <div className="processing">AI is processing...</div>}
+      {isLoading && <div className="loading">Loading...</div>}
       {message && (
         <div className="message-container">
           <h3>AI Response:</h3>
